@@ -1,25 +1,14 @@
-# Файл конфигурации для развертывания на Render.com
+# Обновленный файл конфигурации для развертывания на Render.com
 services:
-  # Наш бот - это фоновый процесс, а не веб-сайт, поэтому тип 'worker'
   - type: worker
     name: spotify-telegram-bot
-    # Указываем, что среда выполнения - Python
-    env: python
-    # Команда для установки зависимостей перед запуском
-    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
-    # Команда, которая будет запущена для старта бота
-    startCommand: "python spotify_downloader_bot.py"
-    # Это самая важная часть: билдпаки.
-    # Первый - стандартный для Python.
-    # Второй - устанавливает последнюю версию ffmpeg в окружение.
-    buildpacks:
-      - heroku/python
-      - https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest
-    # План можно выбрать бесплатный (free)
+    # Указываем Render, что среду нужно собирать с помощью Docker.
+    # Render автоматически найдет файл с именем Dockerfile в вашем репозитории.
+    env: docker
+    # buildCommand и startCommand больше не нужны,
+    # так как они теперь определены внутри Dockerfile.
     plan: free
-    # Настройка переменных окружения.
-    # 'sync: false' означает, что их значения нужно будет ввести
-    # вручную в панели управления Render.
+    # Переменные окружения остаются без изменений.
     envVars:
       - key: TELEGRAM_TOKEN
         sync: false
@@ -27,3 +16,4 @@ services:
         sync: false
       - key: SPOTIFY_CLIENT_SECRET
         sync: false
+
