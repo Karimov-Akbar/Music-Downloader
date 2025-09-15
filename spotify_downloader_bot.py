@@ -1,45 +1,51 @@
+import os
 import asyncio
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import Message
-from spotdl import Spotdl
-import os
+from aiogram.filters import Command
+import spotdl
 
-# токен телеграм-бота
-TOKEN = os.getenv("BOT_TOKEN")
+# Берем токен из Railway Variables
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TOKEN:
+    raise ValueError("❌ TELEGRAM_TOKEN не найден в переменных окружения!")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# создаём объект spotdl
-spotdl = Spotdl()
+# Обработчик команды /start
+@dp.message(Command("start"))
+async def start_cmd(message: types.Message):
+    await message.answer("Привет! 🎶 Пришли ссылку на трек из Spotify, и я его скачаю.")
 
-@dp.message(commands=["start"])
-async def start_cmd(message: Message):
-    await message.answer("Отправь ссылку на трек Spotify 🎵")
-
+# Обработка ссылки на Spotify
 @dp.message()
-async def download_track(message: Message):
+async def download_track(message: types.Message):
     url = message.text.strip()
 
+    if not url.startswith("https://open.spotify.com/"):
+        await message.answer("⚠️ Это не похоже на ссылку Spotify.")
+        return
+
     await message.answer("Скачиваю трек, подожди... ⏳")
+
     try:
-        # ищем трек
-        search_results = spotdl.search([url])
-        if not search_results:
-            await message.answer("Не удалось найти трек по ссылке ❌")
-            return
+        # Указываем временный путь для файла
+        output_file = "song.mp3"
 
-        song = search_results[0]
-        file_path = spotdl.download(song)
+        # Скачивание через spotdl
+        os.system(f"spotdl download {url} --output {output_file}")
 
-        if file_path and os.path.exists(file_path):
-            await message.answer_document(open(file_path, "rb"))
-            os.remove(file_path)
+        # Проверяем, появился ли файл
+        if os.path.exists(output_file):
+            await message.answer_document(types.FSInputFile(output_file))
+            os.remove(output_file)
         else:
-            await message.answer("Ошибка: Файл не найден после скачивания.")
-    except Exception as e:
-        await message.answer(f"Ошибка: {e}")
+            await message.answer("❌ Ошибка: Файл не найден после скачивания.")
 
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка при скачивании: {e}")
+
+# Запуск бота
 async def main():
     await dp.start_polling(bot)
 
