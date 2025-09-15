@@ -3,11 +3,24 @@ import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from yt_dlp import YoutubeDL
-import spotdl
+from spotdl.providers.spotify import SpotifyClient
+from spotdl import Song
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
+SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+
 if not TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN не найден в переменных окружения!")
+if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+    raise ValueError("❌ SPOTIFY_CLIENT_ID или SPOTIFY_CLIENT_SECRET не найдены!")
+
+# Инициализация клиента Spotify (важно!)
+SpotifyClient.init(
+    client_id=SPOTIFY_CLIENT_ID,
+    client_secret=SPOTIFY_CLIENT_SECRET,
+    user_auth=False
+)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -27,12 +40,11 @@ async def download_track(message: types.Message):
     await message.answer("Скачиваю трек, подожди... ⏳")
 
     try:
-        # spotdl: получаем название + youtube-источник
-        song = spotdl.Song.from_url(url)
-
+        # получаем объект песни
+        song = Song.from_url(url)
         output_file = f"{song.display_name}.mp3"
 
-        # качаем через yt-dlp
+        # качаем через yt-dlp по youtube_url
         ydl_opts = {
             "format": "bestaudio/best",
             "outtmpl": output_file,
@@ -48,7 +60,6 @@ async def download_track(message: types.Message):
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([song.youtube_url])
 
-        # отправляем если файл есть
         if os.path.exists(output_file):
             await message.answer_document(types.FSInputFile(output_file))
             os.remove(output_file)
