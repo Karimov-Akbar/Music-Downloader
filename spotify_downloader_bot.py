@@ -73,10 +73,9 @@ async def download_track(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             spotdl_client = Spotdl(
                 client_id=SPOTIFY_CLIENT_ID,
                 client_secret=SPOTIFY_CLIENT_SECRET,
-                output_format="mp3",
-                output=str(temp_path), # Указываем, куда сохранять файл
-                # ffmpeg здесь не указываем, spotdl найдет его сам, если он установлен билдпаком
+                output=str(temp_path)
             )
+
 
             # Скачиваем трек
             songs = spotdl_client.download([url])
