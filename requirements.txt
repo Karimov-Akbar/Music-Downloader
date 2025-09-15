@@ -1,2 +1,2 @@
-spotdl==4.2.0
+spotdl==3.9.4
 python-telegram-bot==13.15
