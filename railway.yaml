@@ -1,13 +1,6 @@
-# railway.yaml
 services:
-  - name: spotify-telegram-bot
-    type: worker
+  - name: spotify-bot
     build:
-      dockerfilePath: ./Dockerfile
-    envVars:
-      TELEGRAM_TOKEN:
-        fromEnvironment: TELEGRAM_TOKEN
-      SPOTIFY_CLIENT_ID:
-        fromEnvironment: SPOTIFY_CLIENT_ID
-      SPOTIFY_CLIENT_SECRET:
-        fromEnvironment: SPOTIFY_CLIENT_SECRET
+      dockerfile: ./Dockerfile
+    run:
+      command: python spotify_downloader_bot.py

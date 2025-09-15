@@ -1,72 +1,68 @@
 import os
-import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.types import FSInputFile
-from spotdl import Spotdl
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from spotdl.download import Downloader
+from spotdl.utils.search import parse_query
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-
-# Загружаем токены и ключи из Railway переменных окружения
+# 🔑 Токен берем из переменных окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
-SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 
-if not TELEGRAM_TOKEN or not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
-    raise ValueError("Не заданы TELEGRAM_TOKEN, SPOTIFY_CLIENT_ID или SPOTIFY_CLIENT_SECRET!")
-
-# Инициализируем SpotDL клиент
-spotdl_client = Spotdl(
-    client_id=SPOTIFY_CLIENT_ID,
-    client_secret=SPOTIFY_CLIENT_SECRET,
-)
-
-# Телеграм бот
-bot = Bot(token=TELEGRAM_TOKEN)
-dp = Dispatcher()
-
-# /start
-@dp.message(Command("start"))
-async def start_handler(message: types.Message):
-    await message.answer("Привет! 🎵 Отправь ссылку на Spotify трек, и я скачаю его для тебя.")
+DOWNLOAD_DIR = "downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
-# Обработка ссылок
-@dp.message()
-async def download_handler(message: types.Message):
-    url = message.text.strip()
+def start(update, context):
+    update.message.reply_text("Привет 👋 Отправь ссылку на трек Spotify!")
 
-    if not url.startswith("https://open.spotify.com/track/"):
-        await message.answer("⚠️ Отправь корректную ссылку на трек Spotify.")
+
+def download_track(url: str) -> str:
+    """Скачивает трек и возвращает путь к файлу"""
+    downloader = Downloader()
+    search_results = parse_query(url)
+
+    if not search_results:
+        return None
+
+    song = search_results[0]
+    file_path = downloader.download(song, DOWNLOAD_DIR)
+    return file_path
+
+
+def handle_message(update, context):
+    url = update.message.text.strip()
+
+    if "spotify.com" not in url:
+        update.message.reply_text("Отправь ссылку на трек Spotify 🎶")
         return
 
+    update.message.reply_text("⏳ Скачиваю...")
+
     try:
-        await message.answer("⏳ Скачиваю трек, подожди немного...")
-
-        # Скачиваем трек
-        results = spotdl_client.search([url])
-        song = results[0]
-        file_path = spotdl_client.download(song)
-
-        # Отправляем пользователю
-        audio_file = FSInputFile(file_path)
-        await message.answer_audio(audio_file)
-
-        # Удаляем после отправки, чтобы не забивать Railway
-        os.remove(file_path)
-
+        file_path = download_track(url)
+        if file_path and os.path.exists(file_path):
+            with open(file_path, "rb") as f:
+                update.message.reply_audio(f)
+            os.remove(file_path)
+        else:
+            update.message.reply_text("❌ Ошибка при скачивании.")
     except Exception as e:
-        logging.error(f"Ошибка при скачивании {url}: {e}")
-        await message.answer("❌ Произошла ошибка при загрузке трека. Попробуй позже.")
+        update.message.reply_text(f"⚠️ Ошибка: {str(e)}")
 
 
-async def main():
-    await dp.start_polling(bot)
+def main():
+    if not TELEGRAM_TOKEN:
+        print("❌ Укажи TELEGRAM_TOKEN в переменных окружения!")
+        return
+
+    updater = Updater(TELEGRAM_TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+
+    port = int(os.getenv("PORT", 8443))
+    updater.start_polling()
+    updater.idle()
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
