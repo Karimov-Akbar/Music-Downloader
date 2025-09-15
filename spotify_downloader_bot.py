@@ -1,58 +1,66 @@
-import asyncio
-import logging
 import os
+import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import FSInputFile
 from spotdl import Spotdl
-from spotdl.types.song import Song
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 
-# Берем токен из переменных окружения
+# Загружаем токены и ключи из Railway переменных окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-if not TELEGRAM_TOKEN:
-    raise ValueError("Не найден TELEGRAM_TOKEN в переменных окружения")
+SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 
+if not TELEGRAM_TOKEN or not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+    raise ValueError("Не заданы TELEGRAM_TOKEN, SPOTIFY_CLIENT_ID или SPOTIFY_CLIENT_SECRET!")
+
+# Инициализируем SpotDL клиент
+spotdl_client = Spotdl(
+    client_id=SPOTIFY_CLIENT_ID,
+    client_secret=SPOTIFY_CLIENT_SECRET,
+)
+
+# Телеграм бот
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# создаём клиента spotdl
-spotdl_client = Spotdl()
-
-
-async def download_track(url: str) -> str | None:
-    try:
-        song: Song = await spotdl_client.song.from_url(url)
-        path = await spotdl_client.downloader.download_song(song)
-        return path
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке трека: {e}")
-        return None
-
-
+# /start
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    await message.answer("Привет! Отправь мне ссылку на трек Spotify, и я скачаю его для тебя 🎵")
+async def start_handler(message: types.Message):
+    await message.answer("Привет! 🎵 Отправь ссылку на Spotify трек, и я скачаю его для тебя.")
 
 
+# Обработка ссылок
 @dp.message()
-async def handle_message(message: types.Message):
+async def download_handler(message: types.Message):
     url = message.text.strip()
-    if "open.spotify.com/track" not in url:
-        await message.answer("Пожалуйста, пришли корректную ссылку на трек Spotify 🎧")
+
+    if not url.startswith("https://open.spotify.com/track/"):
+        await message.answer("⚠️ Отправь корректную ссылку на трек Spotify.")
         return
 
-    await message.answer("⏳ Загружаю трек, подожди немного...")
+    try:
+        await message.answer("⏳ Скачиваю трек, подожди немного...")
 
-    file_path = await download_track(url)
-    if file_path and os.path.exists(file_path):
-        audio = FSInputFile(file_path)
-        await message.answer_audio(audio)
-        os.remove(file_path)  # удаляем после отправки
-    else:
-        await message.answer("❌ Не удалось скачать трек. Попробуй позже.")
+        # Скачиваем трек
+        results = spotdl_client.search([url])
+        song = results[0]
+        file_path = spotdl_client.download(song)
+
+        # Отправляем пользователю
+        audio_file = FSInputFile(file_path)
+        await message.answer_audio(audio_file)
+
+        # Удаляем после отправки, чтобы не забивать Railway
+        os.remove(file_path)
+
+    except Exception as e:
+        logging.error(f"Ошибка при скачивании {url}: {e}")
+        await message.answer("❌ Произошла ошибка при загрузке трека. Попробуй позже.")
 
 
 async def main():
@@ -60,4 +68,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
