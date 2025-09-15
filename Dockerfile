@@ -4,9 +4,9 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-RUN pip install --upgrade pip \
- && pip uninstall -y spotdl \
- && pip install -r requirements.txt
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
