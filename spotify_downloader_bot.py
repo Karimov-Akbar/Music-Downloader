@@ -1,76 +1,49 @@
-import os
 import asyncio
+import os
+from spotdl import Spotdl
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from yt_dlp import YoutubeDL
-from spotdl.providers.spotify import SpotifyClient
-from spotdl import Song
+from aiogram.utils import executor
 
+# токен Telegram бота
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
-SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
-
-if not TOKEN:
-    raise ValueError("❌ TELEGRAM_TOKEN не найден в переменных окружения!")
-if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
-    raise ValueError("❌ SPOTIFY_CLIENT_ID или SPOTIFY_CLIENT_SECRET не найдены!")
-
-# Инициализация клиента Spotify (важно!)
-SpotifyClient.init(
-    client_id=SPOTIFY_CLIENT_ID,
-    client_secret=SPOTIFY_CLIENT_SECRET,
-    user_auth=False
-)
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(bot)
 
-@dp.message(Command("start"))
+# создаём объект SpotDL (он сам подтянет нужные провайдеры)
+spotdl = Spotdl()
+
+async def download_song(url: str) -> str:
+    """Скачать песню по ссылке и вернуть путь к файлу"""
+    songs = await spotdl.search([url])
+    if not songs:
+        return None
+    file = await spotdl.download(songs[0])
+    return file
+
+@dp.message_handler(commands=['start'])
 async def start_cmd(message: types.Message):
-    await message.answer("Привет! 🎶 Пришли ссылку на трек из Spotify, и я попробую скачать его.")
+    await message.answer("Привет! Отправь мне ссылку на песню в Spotify 🎵")
 
-@dp.message()
-async def download_track(message: types.Message):
+@dp.message_handler()
+async def handle_message(message: types.Message):
     url = message.text.strip()
 
-    if not url.startswith("https://open.spotify.com/"):
-        await message.answer("⚠️ Это не похоже на ссылку Spotify.")
+    if "spotify.com" not in url:
+        await message.reply("Отправь ссылку на трек Spotify 🙂")
         return
 
-    await message.answer("Скачиваю трек, подожди... ⏳")
+    await message.reply("Скачиваю... ⏳")
 
     try:
-        # получаем объект песни
-        song = Song.from_url(url)
-        output_file = f"{song.display_name}.mp3"
-
-        # качаем через yt-dlp по youtube_url
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": output_file,
-            "quiet": True,
-            "noplaylist": True,
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-        }
-
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([song.youtube_url])
-
-        if os.path.exists(output_file):
-            await message.answer_document(types.FSInputFile(output_file))
-            os.remove(output_file)
+        file_path = await download_song(url)
+        if file_path:
+            await message.reply_document(open(file_path, "rb"))
         else:
-            await message.answer("❌ Ошибка: файл не найден после скачивания.")
-
+            await message.reply("Не удалось найти трек 😢")
     except Exception as e:
-        await message.answer(f"⚠️ Ошибка при скачивании: {e}")
-
-async def main():
-    await dp.start_polling(bot)
+        await message.reply(f"Ошибка при скачивании: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # aiogram работает в asyncio, так что всё ок
+    executor.start_polling(dp, skip_updates=True)
