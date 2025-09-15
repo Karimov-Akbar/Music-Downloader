@@ -2,9 +2,9 @@ import os
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from yt_dlp import YoutubeDL
 import spotdl
 
-# Берем токен из Railway Variables
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN не найден в переменных окружения!")
@@ -12,12 +12,10 @@ if not TOKEN:
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Обработчик команды /start
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    await message.answer("Привет! 🎶 Пришли ссылку на трек из Spotify, и я его скачаю.")
+    await message.answer("Привет! 🎶 Пришли ссылку на трек из Spotify, и я попробую скачать его.")
 
-# Обработка ссылки на Spotify
 @dp.message()
 async def download_track(message: types.Message):
     url = message.text.strip()
@@ -29,23 +27,37 @@ async def download_track(message: types.Message):
     await message.answer("Скачиваю трек, подожди... ⏳")
 
     try:
-        # Указываем временный путь для файла
-        output_file = "song.mp3"
+        # spotdl: получаем название + youtube-источник
+        song = spotdl.Song.from_url(url)
 
-        # Скачивание через spotdl
-        os.system(f"spotdl download {url} --output {output_file}")
+        output_file = f"{song.display_name}.mp3"
 
-        # Проверяем, появился ли файл
+        # качаем через yt-dlp
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": output_file,
+            "quiet": True,
+            "noplaylist": True,
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }],
+        }
+
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([song.youtube_url])
+
+        # отправляем если файл есть
         if os.path.exists(output_file):
             await message.answer_document(types.FSInputFile(output_file))
             os.remove(output_file)
         else:
-            await message.answer("❌ Ошибка: Файл не найден после скачивания.")
+            await message.answer("❌ Ошибка: файл не найден после скачивания.")
 
     except Exception as e:
         await message.answer(f"⚠️ Ошибка при скачивании: {e}")
 
-# Запуск бота
 async def main():
     await dp.start_polling(bot)
 
