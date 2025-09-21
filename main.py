@@ -25,7 +25,6 @@ DOWNLOAD_PATH.mkdir(exist_ok=True)
 spotdl_client = Spotdl(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-    ffmpeg="/usr/bin/ffmpeg",
     output=f"{DOWNLOAD_PATH}/{{title}} - {{artist}}.mp3"
 )
 
