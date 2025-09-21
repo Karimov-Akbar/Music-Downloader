@@ -1,6 +1,0 @@
-services:
-  - name: spotify-bot
-    build:
-      dockerfile: ./Dockerfile
-    run:
-      command: python spotify_downloader_bot.py
