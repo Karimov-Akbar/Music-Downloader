@@ -25,7 +25,6 @@ DOWNLOAD_PATH.mkdir(exist_ok=True)
 spotdl_client = Spotdl(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-    output=f"{DOWNLOAD_PATH}/{{title}} - {{artist}}.mp3"
 )
 
 
@@ -38,14 +37,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message_text = update.message.text
-    if "open.spotify.com" not in message_text:
+    if "spotify.com" not in message_text:
         await update.message.reply_text("Пожалуйста, отправьте корректную ссылку на Spotify.")
         return
 
     status_message = await update.message.reply_text("Получил ссылку. Начинаю загрузку... ⏳")
 
     try:
-        songs = spotdl_client.download([message_text])
+        songs = spotdl_client.download(
+            [message_text],
+            output=f"{DOWNLOAD_PATH}/{{title}} - {{artist}}.mp3"
+        )
 
         if not songs:
             await status_message.edit_text("Не удалось найти или скачать треки по этой ссылке. 😔")
@@ -81,10 +83,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def main() -> None:
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     logger.info("Бот запущен...")
     application.run_polling()
 
