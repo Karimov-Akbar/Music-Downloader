@@ -5,20 +5,19 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
+# Загрузка переменных окружения
 load_dotenv()
-
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
-SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 
 if not TELEGRAM_BOT_TOKEN:
-    raise ValueError("Не найден TELEGRAM_BOT_TOKEN в .env файле!")
+    raise ValueError("Не найден TELEGRAM_BOT_TOKEN в .env файле или переменных окружения!")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text('Привет! Отправь мне ссылку на трек из Spotify.')
@@ -27,18 +26,18 @@ async def download_song(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     message_text = update.message.text
     if "open.spotify.com/track/" in message_text:
         await update.message.reply_text('Скачиваю трек, пожалуйста, подождите...')
-
+        
         try:
             command = ['spotdl', message_text]
             logger.info(f"Запускаю команду: {' '.join(command)}")
-
+            
             process = subprocess.run(
                 command, 
                 capture_output=True, 
                 text=True, 
                 check=True
             )
-
+            
             logger.info(f"Вывод spotdl (stdout): {process.stdout}")
 
             output_lines = process.stdout.splitlines()
@@ -60,13 +59,19 @@ async def download_song(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 await update.message.reply_text('Не удалось найти скачанный файл после завершения процесса.')
 
         except subprocess.CalledProcessError as e:
-            error_message = f"Процесс spotdl завершился с ошибкой.\n"
-            error_message += f"Код возврата: {e.returncode}\n"
-            error_message += f"Stdout: {e.stdout}\n"
-            error_message += f"Stderr: {e.stderr}"
+            # ЭТО ГЛАВНОЕ ИЗМЕНЕНИЕ!
+            # Отправляем в чат и stdout, и stderr, чтобы увидеть полную картину
+            error_output = e.stdout or "[stdout пуст]"
+            error_stderr = e.stderr or "[stderr пуст]"
             
-            logger.error(error_message)
-            await update.message.reply_text(f"Ошибка при скачивании. Stderr: {e.stderr}")
+            full_error_message = (
+                f"Процесс spotdl завершился с ошибкой.\n\n"
+                f"--- STDOUT ---\n{error_output}\n\n"
+                f"--- STDERR ---\n{error_stderr}"
+            )
+            
+            logger.error(full_error_message)
+            await update.message.reply_text(full_error_message)
             
         except Exception as e:
             logger.error(f"Произошла непредвиденная ошибка: {e}", exc_info=True)
