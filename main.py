@@ -1,93 +1,59 @@
 import os
-import logging
-from uuid import uuid4
-from pathlib import Path
+import subprocess
 from dotenv import load_dotenv
-
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-from spotdl import Spotdl
-
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
 load_dotenv()
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-if not TELEGRAM_TOKEN:
-    raise ValueError("Необходимо указать TELEGRAM_TOKEN в файле .env")
 
-DOWNLOAD_PATH = Path("./downloads")
-DOWNLOAD_PATH.mkdir(exist_ok=True)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 
-spotdl_client = Spotdl(
-    client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-    client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-)
-
+if not TELEGRAM_BOT_TOKEN:
+    raise ValueError("Не найден TELEGRAM_BOT_TOKEN в .env файле!")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    await update.message.reply_html(
-        f"Привет, {user.mention_html()}! 👋\n\nОтправь мне ссылку на трек, альбом или плейлист из Spotify, и я скачаю музыку для тебя.",
-    )
+    await update.message.reply_text('Привет! Отправь мне ссылку на трек из Spotify.')
 
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def download_song(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message_text = update.message.text
-    if "spotify.com" not in message_text:
-        await update.message.reply_text("Пожалуйста, отправьте корректную ссылку на Spotify.")
-        return
+    if "open.spotify.com/track/" in message_text:
+        await update.message.reply_text('Скачиваю трек, пожалуйста, подождите...')
 
-    status_message = await update.message.reply_text("Получил ссылку. Начинаю загрузку... ⏳")
-
-    try:
-        songs = spotdl_client.download(
-            [message_text],
-            output=f"{DOWNLOAD_PATH}/{{title}} - {{artist}}.mp3"
-        )
-
-        if not songs:
-            await status_message.edit_text("Не удалось найти или скачать треки по этой ссылке. 😔")
-            return
-
-        await status_message.edit_text(f"Скачано {len(songs)} трек(ов). Отправляю файлы... 🚀")
-
-        for song in songs:
-            if song and song.path and os.path.exists(song.path):
-                logger.info(f"Отправка файла: {song.path}")
-                try:
-                    await context.bot.send_audio(
-                        chat_id=update.effective_chat.id,
-                        audio=open(song.path, "rb"),
-                        title=song.title,
-                        performer=song.artist,
-                        duration=int(song.duration),
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке файла {song.path}: {e}")
-                    await update.message.reply_text(f"Не смог отправить файл: {song.display_name}. Возможно, он слишком большой.")
-                finally:
-                    os.remove(song.path)
+        try:
+            process = subprocess.run(['spotdl', message_text], capture_output=True, text=True, check=True)
+            
+            output_lines = process.stdout.splitlines()
+            downloaded_file_path = ""
+            for line in output_lines:
+                if "Downloaded" in line:
+                    parts = line.split('"')
+                    if len(parts) > 1:
+                        downloaded_file_path = parts[1]
+                        break
+            
+            if downloaded_file_path and os.path.exists(downloaded_file_path):
+                with open(downloaded_file_path, 'rb') as audio_file:
+                    await update.message.reply_audio(audio=audio_file, title=os.path.basename(downloaded_file_path))
+                os.remove(downloaded_file_path)
             else:
-                logger.warning(f"Файл для песни {song.display_name} не найден.")
+                await update.message.reply_text('Не удалось найти скачанный файл.')
 
-        await status_message.edit_text("Все готово! ✅")
-
-    except Exception as e:
-        logger.error(f"Произошла ошибка при обработке ссылки: {e}")
-        await status_message.edit_text("Ой, что-то пошло не так. Попробуйте другую ссылку. 🛠️")
-
+        except subprocess.CalledProcessError as e:
+            await update.message.reply_text(f"Ошибка при скачивании: {e.stderr}")
+        except Exception as e:
+            await update.message.reply_text(f"Произошла непредвиденная ошибка: {e}")
+    else:
+        await update.message.reply_text('Пожалуйста, отправьте корректную ссылку на трек Spotify.')
 
 def main() -> None:
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logger.info("Бот запущен...")
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_song))
+
     application.run_polling()
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
