@@ -1,0 +1,20 @@
+{
+    "version": 2,
+    "builds": [
+      {
+        "src": "api/bot.py",
+        "use": "@vercel/python"
+      }
+    ],
+    "routes": [
+      {
+        "src": "/api/webhook",
+        "dest": "api/bot.py"
+      }
+    ],
+    "env": {
+      "TELEGRAM_BOT_TOKEN": "@telegram_bot_token",
+      "SPOTIFY_CLIENT_ID": "@spotify_client_id",
+      "SPOTIFY_CLIENT_SECRET": "@spotify_client_secret"
+    }
+  }
