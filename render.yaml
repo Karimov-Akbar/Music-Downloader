@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: telegram-music-bot
+    name: telegram-music-bot-web
     env: python
     region: oregon
     plan: free

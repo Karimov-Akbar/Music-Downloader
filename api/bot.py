@@ -264,10 +264,34 @@ def main():
     print('🤖 Бот запущен!')
     print(f'🌐 Режим: Polling (для Render.com)')
     
-    # Запускаем polling с обработкой ошибок
+    # Для Render Web Service - запускаем простой HTTP сервер в отдельном потоке
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    
+    class HealthCheckHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Bot is running!')
+        
+        def log_message(self, format, *args):
+            pass  # Отключаем логи HTTP сервера
+    
+    def run_http_server():
+        port = int(os.getenv('PORT', 10000))
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        print(f'🌐 HTTP сервер запущен на порту {port}')
+        server.serve_forever()
+    
+    # Запускаем HTTP сервер в отдельном потоке
+    http_thread = threading.Thread(target=run_http_server, daemon=True)
+    http_thread.start()
+    
+    # Запускаем бота в основном потоке
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True  # Игнорируем старые сообщения
+        drop_pending_updates=True
     )
 
 if __name__ == '__main__':
