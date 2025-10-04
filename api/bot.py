@@ -252,9 +252,9 @@ async def webhook_handler(request):
     
     return {"statusCode": 200}
 
-# Для локального запуска
+# Для локального запуска и Render.com
 def main():
-    """Запуск бота в режиме polling (для локальной разработки)"""
+    """Запуск бота в режиме polling"""
     application = Application.builder().token(TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
@@ -262,7 +262,13 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_music))
     
     print('🤖 Бот запущен!')
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    print(f'🌐 Режим: Polling (для Render.com)')
+    
+    # Запускаем polling с обработкой ошибок
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True  # Игнорируем старые сообщения
+    )
 
 if __name__ == '__main__':
     main()
