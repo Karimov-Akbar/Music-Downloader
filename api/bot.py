@@ -1,14 +1,14 @@
 import os
-import json
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from spotdl import Spotdl
-import tempfile
 import asyncio
+from dotenv import load_dotenv
+import yt_dlp
+import tempfile
+import glob
 
-# Инициализация Spotdl
-spotdl = Spotdl(client_id=os.getenv('SPOTIFY_CLIENT_ID'), 
-                client_secret=os.getenv('SPOTIFY_CLIENT_SECRET'))
+# Загружаем переменные окружения
+load_dotenv()
 
 # Telegram Bot Token
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -19,8 +19,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         '🎵 Привет! Я бот для скачивания музыки.\n\n'
         'Отправь мне:\n'
         '• Название песни\n'
-        '• Ссылку на Spotify трек\n'
-        '• Ссылку на YouTube\n\n'
+        '• Ссылку на YouTube\n'
+        '• Ссылку на Spotify (найду на YouTube)\n\n'
         'Я найду и отправлю тебе музыку!'
     )
 
@@ -29,12 +29,107 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         '📖 Как использовать:\n\n'
         '1. Отправь название песни или исполнителя\n'
-        '2. Или отправь ссылку на Spotify/YouTube\n'
+        '2. Или отправь ссылку на YouTube/Spotify\n'
         '3. Получи музыку!\n\n'
         'Примеры:\n'
         '• "Imagine Dragons Believer"\n'
+        '• https://www.youtube.com/watch?v=...\n'
         '• https://open.spotify.com/track/...'
     )
+
+def download_track(query):
+    """Синхронная функция для скачивания трека через yt-dlp"""
+    try:
+        # Создаём временную директорию
+        temp_dir = tempfile.mkdtemp()
+        output_template = os.path.join(temp_dir, '%(title)s.%(ext)s')
+        
+        # Если это Spotify ссылка, извлекаем информацию и ищем на YouTube
+        if 'spotify.com' in query:
+            try:
+                import re
+                from spotipy import Spotify
+                from spotipy.oauth2 import SpotifyClientCredentials
+                
+                # Получаем track ID из ссылки
+                track_id = re.search(r'track/([a-zA-Z0-9]+)', query)
+                if track_id:
+                    # Инициализируем Spotify API
+                    sp = Spotify(auth_manager=SpotifyClientCredentials(
+                        client_id=os.getenv('SPOTIFY_CLIENT_ID'),
+                        client_secret=os.getenv('SPOTIFY_CLIENT_SECRET')
+                    ))
+                    
+                    # Получаем информацию о треке
+                    track = sp.track(track_id.group(1))
+                    artist = track['artists'][0]['name']
+                    title = track['name']
+                    
+                    # Формируем поисковый запрос для YouTube
+                    query = f"{artist} - {title}"
+                    print(f"Spotify трек: {query}")
+            except Exception as e:
+                print(f"Не удалось получить инфо из Spotify: {e}")
+                return None, None, None, None, "Не удалось обработать Spotify ссылку. Отправьте название песни."
+        
+        # Проверяем наличие FFmpeg (для локального запуска)
+        import shutil
+        has_ffmpeg = shutil.which('ffmpeg') is not None
+        
+        # Настройки yt-dlp
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': output_template,
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'default_search': 'ytsearch1',
+            'socket_timeout': 30,
+            'retries': 3,
+            'fragment_retries': 3,
+            'extractor_retries': 3,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        }
+        
+        # Добавляем конвертацию в MP3 только если есть FFmpeg
+        if has_ffmpeg:
+            ydl_opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }]
+        
+        print(f"Скачиваю: {query}")
+        print(f"FFmpeg доступен: {has_ffmpeg}")
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Скачиваем
+            info = ydl.extract_info(query, download=True)
+            
+            # Получаем информацию о треке
+            if 'entries' in info:
+                # Это результат поиска
+                info = info['entries'][0]
+            
+            title = info.get('title', 'Unknown')
+            artist = info.get('artist', info.get('uploader', 'Unknown'))
+            duration = info.get('duration', 0)
+            
+            # Ищем скачанный файл (mp3, m4a, webm, opus)
+            audio_files = []
+            for ext in ['*.mp3', '*.m4a', '*.webm', '*.opus']:
+                audio_files.extend(glob.glob(os.path.join(temp_dir, ext)))
+            
+            if audio_files:
+                return audio_files[0], title, artist, duration, None
+            
+            return None, None, None, None, "Файл не был создан"
+            
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        return None, None, None, None, str(e)
 
 async def download_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает запрос на скачивание музыки"""
@@ -45,48 +140,98 @@ async def download_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text('🔍 Ищу музыку...')
     
     try:
-        # Создаем временную директорию
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Поиск и скачивание
-            songs = spotdl.search([user_input])
+        await status_msg.edit_text('⬇️ Скачиваю...')
+        
+        # Запускаем скачивание в отдельном потоке
+        file_path, title, artist, duration, error = await asyncio.to_thread(
+            download_track, user_input
+        )
+        
+        if error:
+            await status_msg.edit_text(f'❌ Ошибка: {error[:150]}')
+            return
+        
+        if not file_path or not os.path.exists(file_path):
+            await status_msg.edit_text('❌ Не удалось скачать трек.')
+            return
+        
+        # Получаем размер файла
+        file_size = os.path.getsize(file_path)
+        
+        # Telegram ограничение: 50 МБ для ботов
+        if file_size > 50 * 1024 * 1024:
+            await status_msg.edit_text('❌ Файл слишком большой (>50 МБ)')
+            try:
+                os.remove(file_path)
+            except:
+                pass
+            return
+        
+        await status_msg.edit_text('📤 Отправляю файл...')
+        
+        # Отправляем с увеличенным таймаутом
+        with open(file_path, 'rb') as audio:
+            await context.bot.send_audio(
+                chat_id=chat_id,
+                audio=audio,
+                title=title,
+                performer=artist,
+                duration=duration,
+                read_timeout=120,
+                write_timeout=120,
+                connect_timeout=120
+            )
+        
+        # Удаляем файл после отправки
+        try:
+            os.remove(file_path)
+            # Удаляем временную директорию
+            import shutil
+            temp_dir = os.path.dirname(file_path)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except:
+            pass
+        
+        await status_msg.delete()
             
-            if not songs:
-                await status_msg.edit_text('❌ Ничего не найдено. Попробуй другой запрос.')
-                return
-            
-            song = songs[0]
-            await status_msg.edit_text(f'⬇️ Скачиваю: {song.name} - {song.artist}...')
-            
-            # Скачиваем трек
-            downloaded, errors = spotdl.download(song)
-            
-            if errors:
-                await status_msg.edit_text(f'❌ Ошибка скачивания: {errors[0]}')
-                return
-            
-            # Отправляем файл
-            file_path = downloaded[0] if downloaded else None
-            
-            if file_path and os.path.exists(file_path):
-                await status_msg.edit_text('📤 Отправляю файл...')
-                
-                with open(file_path, 'rb') as audio:
-                    await context.bot.send_audio(
-                        chat_id=chat_id,
-                        audio=audio,
-                        title=song.name,
-                        performer=song.artist,
-                        duration=song.duration
-                    )
-                
-                await status_msg.delete()
-            else:
-                await status_msg.edit_text('❌ Не удалось скачать файл.')
-                
     except Exception as e:
-        await status_msg.edit_text(f'❌ Произошла ошибка: {str(e)}')
+        error_msg = str(e)
+        await status_msg.edit_text(f'❌ Ошибка: {error_msg[:150]}')
 
-# Для Vercel webhook
+# Для Vercel webhook - синхронная версия
+def webhook_handler_sync(body):
+    """Синхронный обработчик webhook для Vercel"""
+    import asyncio
+    
+    async def process():
+        application = Application.builder().token(TOKEN).build()
+        
+        # Регистрация обработчиков
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_music))
+        
+        # Инициализация приложения
+        await application.initialize()
+        await application.start()
+        
+        # Обработка запроса
+        update = Update.de_json(body, application.bot)
+        await application.process_update(update)
+        
+        await application.stop()
+        
+        return {"statusCode": 200}
+    
+    # Запускаем в новом event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(process())
+    finally:
+        loop.close()
+
+# Старый async webhook handler (оставляем для совместимости)
 async def webhook_handler(request):
     """Обработчик webhook для Vercel"""
     application = Application.builder().token(TOKEN).build()
