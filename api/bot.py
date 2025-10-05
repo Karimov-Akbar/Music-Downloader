@@ -101,8 +101,7 @@ def download_track(query):
                     'skip': ['hls', 'dash']
                 }
             },
-            # Попробуем использовать cookies из браузера (если доступны)
-            'cookiesfrombrowser': ('chrome',) if has_ffmpeg else None,
+            # НЕ используем cookies - их нет на сервере
         }
         
         # Добавляем конвертацию в MP3 только если есть FFmpeg
