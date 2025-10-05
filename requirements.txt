@@ -2,3 +2,4 @@ python-telegram-bot==21.0
 yt-dlp==2024.12.13
 python-dotenv==1.0.1
 spotipy==2.24.0
+mutagen==1.47.0

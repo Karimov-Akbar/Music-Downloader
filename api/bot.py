@@ -89,8 +89,20 @@ def download_track(query):
             'fragment_retries': 3,
             'extractor_retries': 3,
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate'
+            },
+            # Используем альтернативные методы извлечения
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'skip': ['hls', 'dash']
+                }
+            },
+            # Попробуем использовать cookies из браузера (если доступны)
+            'cookiesfrombrowser': ('chrome',) if has_ffmpeg else None,
         }
         
         # Добавляем конвертацию в MP3 только если есть FFmpeg
@@ -104,28 +116,50 @@ def download_track(query):
         print(f"Скачиваю: {query}")
         print(f"FFmpeg доступен: {has_ffmpeg}")
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Скачиваем
-            info = ydl.extract_info(query, download=True)
-            
-            # Получаем информацию о треке
-            if 'entries' in info:
-                # Это результат поиска
-                info = info['entries'][0]
-            
-            title = info.get('title', 'Unknown')
-            artist = info.get('artist', info.get('uploader', 'Unknown'))
-            duration = info.get('duration', 0)
-            
-            # Ищем скачанный файл (mp3, m4a, webm, opus)
-            audio_files = []
-            for ext in ['*.mp3', '*.m4a', '*.webm', '*.opus']:
-                audio_files.extend(glob.glob(os.path.join(temp_dir, ext)))
-            
-            if audio_files:
-                return audio_files[0], title, artist, duration, None
-            
-            return None, None, None, None, "Файл не был создан"
+        # Пробуем разные источники
+        search_queries = [
+            query,  # Оригинальный запрос
+            f"ytsearch:{query}",  # YouTube поиск
+            f"ytsearch1:{query} audio",  # YouTube с уточнением "audio"
+        ]
+        
+        last_error = None
+        
+        for search_query in search_queries:
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # Скачиваем
+                    info = ydl.extract_info(search_query, download=True)
+                    
+                    # Получаем информацию о треке
+                    if 'entries' in info:
+                        # Это результат поиска
+                        info = info['entries'][0]
+                    
+                    title = info.get('title', 'Unknown')
+                    artist = info.get('artist', info.get('uploader', 'Unknown'))
+                    duration = info.get('duration', 0)
+                    
+                    # Ищем скачанный файл (mp3, m4a, webm, opus)
+                    audio_files = []
+                    for ext in ['*.mp3', '*.m4a', '*.webm', '*.opus']:
+                        audio_files.extend(glob.glob(os.path.join(temp_dir, ext)))
+                    
+                    if audio_files:
+                        return audio_files[0], title, artist, duration, None
+                    
+            except Exception as e:
+                last_error = str(e)
+                print(f"Ошибка с запросом '{search_query}': {e}")
+                continue
+        
+        # Если все попытки провалились
+        if last_error:
+            if 'Sign in to confirm' in last_error or 'bot' in last_error.lower():
+                return None, None, None, None, "YouTube временно недоступен. Попробуйте другую песню или позже."
+            return None, None, None, None, f"Не удалось скачать: {last_error[:200]}"
+        
+        return None, None, None, None, "Файл не был создан"
             
     except Exception as e:
         print(f"Ошибка: {e}")
