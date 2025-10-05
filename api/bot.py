@@ -42,6 +42,7 @@ def download_track(query):
     try:
         # Создаём временную директорию
         temp_dir = tempfile.mkdtemp()
+        # Убираем исполнителя из имени файла - добавим потом через метаданные
         output_template = os.path.join(temp_dir, '%(title)s.%(ext)s')
         
         # Если это Spotify ссылка, извлекаем информацию и ищем на YouTube
