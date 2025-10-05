@@ -97,12 +97,17 @@ def download_track(query):
             # Используем альтернативные методы извлечения
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'web'],
+                    'player_client': ['android', 'ios', 'web'],
                     'skip': ['hls', 'dash']
                 }
             },
-            # НЕ используем cookies - их нет на сервере
         }
+        
+        # Добавляем прокси если есть в переменных окружения
+        proxy = os.getenv('PROXY_URL')  # Формат: http://username:password@ip:port
+        if proxy:
+            ydl_opts['proxy'] = proxy
+            print(f"Используется прокси")
         
         # Добавляем конвертацию в MP3 только если есть FFmpeg
         if has_ffmpeg:
